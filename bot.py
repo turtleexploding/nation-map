@@ -220,7 +220,7 @@ class Command(commands.Cog):
 
             times = int(time.time())
             image_path = f'map-{scale}-{times}.png'
-            
+            image.save(path)
             await inter.followup.send(file=disnake.File(image_path))
 
         await create_map(nations, colours, scale)
@@ -326,7 +326,7 @@ class Command(commands.Cog):
 
         async def create_background(minX, minZ, maxX, maxZ, link, world, now, tminX, tminZ,  tmaxX, tmaxZ, bpp, tiles, scale):
 
-            ts = int(512)
+            ts = 512
 
             nx = math.floor(tminX*ts)
             nz = math.floor(tminZ*ts)
@@ -337,8 +337,10 @@ class Command(commands.Cog):
             
             total_width = int((maxX-minX)*16*ts/bpp)
             total_height = int((maxZ-minZ)*16*ts/bpp)
-            print(f'minx:{nx} minz:{nz} maxx:{nx+total_width} maxz:{nz+total_height}')
-            print(f"Total width: {total_width+ts}, Total height: {total_height+ts}")
+            global marginw
+            global marginh
+            marginw = int(total_width*0.1)
+            marginh = int(total_height*0.1)
             
             output = Image.new(mode="RGBA", size=(total_width+ts, total_height+ts))
             
@@ -354,31 +356,34 @@ class Command(commands.Cog):
             
             shutil.rmtree(f'{zoom}-{now}')
             
-            cLeft = abs(abs(minX)*scale-abs(nx))
-            cTop = abs(abs(minZ)*scale-abs(nz))
-            cRight = abs(cLeft+abs(maxX-minX)*scale)
-            cBottom = abs(cTop+abs(maxZ-minZ)*scale)
-            print(f"Crop dimensions: left={cLeft}, top={cTop}, right={cRight}, bottom={cBottom}")
-            print(f'dimensions: hor:{abs(cRight-cLeft)} ver:{abs(cBottom-cTop)}')
-            print(f'expected dimensions: hor:{abs(maxX-minX)*scale} ver:{abs(maxZ-minZ)*scale}')
+            cLeft = abs(abs(minX)*scale-abs(nx))-marginw
+            cTop = abs(abs(minZ)*scale-abs(nz))-marginh
+            cRight = abs(cLeft+abs(maxX-minX)*scale)+scale+marginw*2
+            cBottom = abs(cTop+abs(maxZ-minZ)*scale)+scale+marginh*2
 
             cropped = output.crop((cLeft, cTop, cRight, cBottom))
-            
             return cropped
 
         async def draw_towns(image, coords, minX, minZ, now, nationName, c, scale):
             draw = ImageDraw.Draw(image)
 
+            acoords = []
             for coord in coords:
-                adjusted = ((coord[0]-minX)*scale, (coord[1]-minZ)*scale)
-                draw.rectangle([adjusted, (adjusted[0]+scale-1, adjusted[1]+scale-1)], fill=c)
+                x0 = ((coord[0]-minX)*scale)+int(marginw)
+                y0 = ((coord[1]-minZ)*scale)+int(marginh)
+                x1 = x0+scale-1
+                y1 = y0+scale-1
+                acoords.append((x0, y0, x1, y1))
+            
+            for acoord in acoords:
+                draw.rectangle(acoord, fill = c)
 
             path2 = f'{nationName}-{c}-{now}.png'
             image.save(path2)
-            
             await inter.edit_original_message(file=disnake.File(path2))
 
         async def main():
+            stime = time.time()
             base = 'https://api.earthmc.net/v3/aurora/'
             t = 'towns?query='
             n = 'nations?query='
@@ -390,9 +395,7 @@ class Command(commands.Cog):
             c = colour  
             now = int(time.time())
             e = (int(zoom)+int(1))
-            print(f'e:{e}')
             scale = 2**e
-            print(f'scale:{scale}')
 
             coords = all_coords(base, n, t)
 
@@ -401,26 +404,27 @@ class Command(commands.Cog):
                 return
 
             bpp = 2**(12-int(zoom))
-            print(f'bpp:{bpp}')
 
             minX = min(coord[0] for coord in coords)
             minZ = min(coord[1] for coord in coords)
             maxX = max(coord[0] for coord in coords)
             maxZ = max(coord[1] for coord in coords)
-            print(f'minx:{minX} minz:{minZ} maxX:{maxX} maxZ:{maxZ}')
 
 
             tminX = math.floor(minX*16/bpp)
             tminZ = math.floor(minZ*16/bpp)
             tmaxX = math.floor(maxX*16/bpp)
             tmaxZ = math.floor(maxZ*16/bpp)
-            print(f'tileminx:{tminX} tileminz:{tminZ} tilemaxx:{tmaxX} tilemaxz:{tmaxZ}')
             
             tiles = [(x, z) for x in range(tminX, tmaxX+1) for z in range(tminZ, tmaxZ+1)]
 
             image = await create_background(minX, minZ, maxX, maxZ, link, world, now, tminX, tminZ,  tmaxX, tmaxZ, bpp, tiles, scale)
             await draw_towns(image, coords, minX, minZ, now, nationName, c, scale)
             await download_tiles(tiles, link, world, now)
+
+            etime = time.time()
+            length = etime-stime
+            print(f'time taen for {nation} {zoom}: {length}')
 
         await main()
 
