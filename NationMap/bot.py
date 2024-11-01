@@ -1,6 +1,6 @@
 import requests
 import disnake
-from disnake.ext import commands
+from disnake.ext import commands, tasks
 from PIL import Image, ImageDraw
 import time
 import asyncio
@@ -9,9 +9,10 @@ import math
 import shutil
 import aiohttp
 import numpy as np
-import json
+import multi # type: ignore
 
 TOKEN = ''
+CHANNEL_ID = 966170448826073090
 
 intents = disnake.Intents.default()
 bot = commands.InteractionBot(intents=intents)
@@ -21,7 +22,7 @@ class Command(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        
+
     @commands.slash_command(description="Creates a map of towns in nations")
     async def map_blank(
         self,
@@ -38,7 +39,6 @@ class Command(commands.Cog):
             default="Black")):
 
         await inter.response.defer()
-        await asyncio.sleep(6)
         
         commandString = f"/map nations: {nations} scale: {scale} colour: {colour}"
         print(f'Received command with arguments: {nations}, {scale}, {colour}')
@@ -51,13 +51,16 @@ class Command(commands.Cog):
             base_url = 'https://api.earthmc.net/v3/aurora/towns?query='
             results = []
     
-            batch_size = 10
+            batch_size = 100
             town_name_batches = [town_names[i:i + batch_size] for i in range(0, len(town_names), batch_size)]
     
             for batch in town_name_batches:
                 query = ','.join(batch)
                 url = base_url + query
-                response = requests.get(url)
+                kms = {
+                    'query': batch
+                    }
+                response = requests.post(url=url, json=kms)
         
                 if response.status_code == 200:
                     data = response.json()
@@ -75,13 +78,15 @@ class Command(commands.Cog):
                     coordinates.extend(town_blocks)
             return coordinates
 
-        url = 'https://api.earthmc.net/v3/aurora'
+        urlaasqdaesdac = 'https://api.earthmc.net/v3/aurora'
         
         nation_list = [nation.strip() for nation in nations.split(',')]
         all_coordinates = []
 
         for nation in nation_list:
-            response = requests.get(f'{url}/nations?query={nation}')
+            
+            response = requests.post(url=f'{urlaasqdaesdac}/nations/', json={'query': [nation], 'towns': True})
+            print(response)
 
             if response.status_code == 200:
                 nationLookup = response.json()
@@ -118,7 +123,7 @@ class Command(commands.Cog):
 
         times = int(time.time())
 
-        image_path = f'map-{scale}-{colour}-{times}.png'
+        image_path = f'maps/map-{scale}-{colour}-{times}.png'
         image.save(image_path)
 
         await inter.edit_original_message(file=disnake.File(image_path))
@@ -137,7 +142,7 @@ class Command(commands.Cog):
         nations: str = commands.Param(description=""),
         colours: str = commands.Param(description=""),
         scale: int = commands.Param(description="", default=4)
-    ):
+        ):
         await inter.response.defer()
 
         if scale > 8:
@@ -154,7 +159,10 @@ class Command(commands.Cog):
             for batch in town_name_batches:
                 query = ','.join(batch)
                 url = base_url + query
-                response = requests.get(url)
+                kms = {
+                    'query': batch
+                    }
+                response = requests.post(url=url, json=kms)
 
                 if response.status_code == 200:
                     data = response.json()
@@ -180,7 +188,7 @@ class Command(commands.Cog):
             nation_colours = dict(zip(nation_list, colour_list))
 
             for nation in nation_list:
-                response = requests.get(f'{url}/nations?query={nation}')
+                response = requests.post(f'{url}/nations/', json={'query': [nation], 'towns': True})
 
                 if response.status_code == 200:
                     nation_lookup = response.json()
@@ -219,8 +227,8 @@ class Command(commands.Cog):
                     draw.rectangle([adjusted_coord, (adjusted_coord[0] + pixel_size - 1, adjusted_coord[1] + pixel_size - 1)], fill=colour)
 
             times = int(time.time())
-            image_path = f'map-{scale}-{times}.png'
-            image.save(path)
+            image_path = f'maps/map-{scale}-{times}.png'
+            image.save(image_path)
             await inter.followup.send(file=disnake.File(image_path))
 
         await create_map(nations, colours, scale)
@@ -233,6 +241,7 @@ class Command(commands.Cog):
         colour: str = commands.Param(description = ''),
         zoom: str = commands.Param( description = '')
     ):
+        stime = int(time.time())
         n = nation
         c = colour
         if int(zoom) > 3:
@@ -240,21 +249,6 @@ class Command(commands.Cog):
 
         await inter.response.defer()
         await inter.send("<a:UpsidedownTurtle:1266426955503239201>")
-
-        def town_names(base, n, nationName):
-            names = []
-
-            response = requests.get(f'{base}{n}{nationName}')
-
-            if response.status_code == 200:
-                nationLookup = response.json()
-
-                if len(nationLookup) > 0 and 'towns' in nationLookup[0]:
-                    nationTowns = nationLookup[0]['towns']
-                    formattedNationTowns = [t['name'] for t in nationTowns]
-                    names.extend(formattedNationTowns)
-
-            return names
 
         def town_info(townNames, base, t):
             info = []
@@ -264,8 +258,9 @@ class Command(commands.Cog):
 
             for batch in nameBatches:
                 query = ','.join(batch)
-                url = base+t+query
-                response = requests.get(url)
+                urleee = 'https://api.earthmc.net/v3/aurora/towns'
+    
+                response = requests.post(url=urleee, json={'query': [batch]})
 
                 if response.status_code == 200:
                     data = response.json()
@@ -286,8 +281,9 @@ class Command(commands.Cog):
             allcoords = []
 
             for na in nation_list:
-                response = requests.get(f'{base}{n}{na}')
 
+                response = requests.post(url=f'{base}nations', json={'query': [na]})
+                print(response.text)
                 if response.status_code == 200:
                     nationLookup = response.json()
 
@@ -301,7 +297,7 @@ class Command(commands.Cog):
                         allcoords.extend(coordinates)
 
             if not allcoords:
-                print("No towns found for the provided nations")
+                print("nation does not exist")
             return allcoords
         
         async def download_tile(session, url, path):
@@ -320,7 +316,7 @@ class Command(commands.Cog):
                 tasks = []
                 for x, z in tiles:
                     url = f'{link}/tiles/{world}/{zoom}/{x}_{z}.png'
-                    path = f'{zoom}-{now}/{x}_{z}.png'
+                    path = f'caches/{zoom}-{now}/{x}_{z}.png'
                     tasks.append(download_tile(session, url, path))
                 await asyncio.gather(*tasks)
 
@@ -331,7 +327,7 @@ class Command(commands.Cog):
             nx = math.floor(tminX*ts)
             nz = math.floor(tminZ*ts)
             
-            os.makedirs(f'{scale}-{now}', exist_ok=True)
+            os.makedirs(f'caches/{scale}-{now}', exist_ok=True)
                         
             await download_tiles(tiles, link, world, now)
             
@@ -346,7 +342,7 @@ class Command(commands.Cog):
             
             for x in range(tminX, tmaxX + 1):
                 for z in range(tminZ, tmaxZ + 1):
-                    tile_path = f'{zoom}-{now}/{x}_{z}.png'
+                    tile_path = f'caches/{zoom}-{now}/{x}_{z}.png'
                     try:
                         tile = Image.open(tile_path)
                         output.paste(tile, ((x-tminX)*ts, (z-tminZ)*ts))
@@ -354,7 +350,7 @@ class Command(commands.Cog):
                         print(f"Warning: Tile {tile_path} not found.")
                         continue
             
-            shutil.rmtree(f'{zoom}-{now}')
+            shutil.rmtree(f'caches/{zoom}-{now}')
             
             cLeft = abs(abs(minX)*scale-abs(nx))-marginw
             cTop = abs(abs(minZ)*scale-abs(nz))-marginh
@@ -378,7 +374,7 @@ class Command(commands.Cog):
             for acoord in acoords:
                 draw.rectangle(acoord, fill = c)
 
-            path2 = f'{nationName}-{c}-{now}.png'
+            path2 = f'maps/{nationName}-{c}-{now}.png'
             image.save(path2)
             await inter.edit_original_message(file=disnake.File(path2))
 
@@ -424,6 +420,7 @@ class Command(commands.Cog):
 
             etime = time.time()
             length = etime-stime
+            await inter.edit_original_message(f'{length} seconds')
             print(f'time taen for {nation} {zoom}: {length}')
 
         await main()
@@ -431,6 +428,17 @@ class Command(commands.Cog):
 @bot.event
 async def on_ready():
     print('Ready')
+    daily_task.start()
+
+@tasks.loop(seconds=60) 
+async def daily_task():
+    current_time = time.strftime("%H:%M")
+    if current_time == "12:00":
+        image_path = multi.create_map()
+        with open(image_path, 'rb') as f:
+            picture = disnake.File(f)
+            channel = bot.get_channel(CHANNEL_ID)
+            await channel.send(file=picture)
 
 bot.add_cog(Command(bot))
 bot.run(TOKEN)
