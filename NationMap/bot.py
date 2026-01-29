@@ -8,11 +8,9 @@ import os
 import math
 import shutil
 import aiohttp
-import numpy as np
-import multi # type: ignore
+import MainRange
 
 TOKEN = ''
-CHANNEL_ID = 966170448826073090
 
 intents = disnake.Intents.default()
 bot = commands.InteractionBot(intents=intents)
@@ -233,7 +231,7 @@ class Command(commands.Cog):
 
         await create_map(nations, colours, scale)
     
-    @commands.slash_command(description='makes a map of a n with squaremap as a background')
+    @commands.slash_command(description='makes a map of a nation with squaremap as a background')
     async def map(
         self,
         inter: disnake.ApplicationCommandInteraction,
@@ -260,7 +258,7 @@ class Command(commands.Cog):
                 query = ','.join(batch)
                 urleee = 'https://api.earthmc.net/v3/aurora/towns'
     
-                response = requests.post(url=urleee, json={'query': [batch]})
+                response = requests.post(url=urleee, json={'query': batch})
 
                 if response.status_code == 200:
                     data = response.json()
@@ -320,7 +318,7 @@ class Command(commands.Cog):
                     tasks.append(download_tile(session, url, path))
                 await asyncio.gather(*tasks)
 
-        async def create_background(minX, minZ, maxX, maxZ, link, world, now, tminX, tminZ,  tmaxX, tmaxZ, bpp, tiles, scale):
+        async def create_background(minX, minZ, maxX, maxZ, link, world, now, tminX, tminZ,  tmaxX, tmaxZ, bpp, tiles, scale, total_width, total_height):
 
             ts = 512
 
@@ -330,13 +328,6 @@ class Command(commands.Cog):
             os.makedirs(f'caches/{scale}-{now}', exist_ok=True)
                         
             await download_tiles(tiles, link, world, now)
-            
-            total_width = int((maxX-minX)*16*ts/bpp)
-            total_height = int((maxZ-minZ)*16*ts/bpp)
-            global marginw
-            global marginh
-            marginw = int(total_width*0.1)
-            marginh = int(total_height*0.1)
             
             output = Image.new(mode="RGBA", size=(total_width+ts, total_height+ts))
             
@@ -352,21 +343,33 @@ class Command(commands.Cog):
             
             shutil.rmtree(f'caches/{zoom}-{now}')
             
-            cLeft = abs(abs(minX)*scale-abs(nx))-marginw
-            cTop = abs(abs(minZ)*scale-abs(nz))-marginh
-            cRight = abs(cLeft+abs(maxX-minX)*scale)+scale+marginw*2
-            cBottom = abs(cTop+abs(maxZ-minZ)*scale)+scale+marginh*2
+            cLeft = abs(abs(minX)*scale-abs(nx))
+            cTop = abs(abs(minZ)*scale-abs(nz))
+            cRight = abs(cLeft+abs(maxX-minX)*scale)+scale*2
+            cBottom = abs(cTop+abs(maxZ-minZ)*scale)+scale*2
 
             cropped = output.crop((cLeft, cTop, cRight, cBottom))
             return cropped
 
-        async def draw_towns(image, coords, minX, minZ, now, nationName, c, scale):
-            draw = ImageDraw.Draw(image)
+        async def draw_towns(background, coords, minX, minZ, now, nationName, c, scale, total_width, total_height):
+            #draw = ImageDraw.Draw(image)
+            image = background
+            TINT_COLOR = (0, 0, 0)
+            TRANSPARENCY = .5
+            OPACITY = int(255 * TRANSPARENCY)
 
+            overlay = Image.new('RGBA', image.size, TINT_COLOR+(0,))
+            draw2 = ImageDraw.Draw(overlay)
+            draw2.rectangle([(0, 0), (image.width, image.height)], fill=TINT_COLOR+(OPACITY,))
+
+            image2 = Image.alpha_composite(image, overlay)
+            
+            draw = ImageDraw.Draw(image2)
+            
             acoords = []
             for coord in coords:
-                x0 = ((coord[0]-minX)*scale)+int(marginw)
-                y0 = ((coord[1]-minZ)*scale)+int(marginh)
+                x0 = ((coord[0]-minX)*scale)
+                y0 = ((coord[1]-minZ)*scale)
                 x1 = x0+scale-1
                 y1 = y0+scale-1
                 acoords.append((x0, y0, x1, y1))
@@ -374,8 +377,8 @@ class Command(commands.Cog):
             for acoord in acoords:
                 draw.rectangle(acoord, fill = c)
 
-            path2 = f'maps/{nationName}-{c}-{now}.png'
-            image.save(path2)
+            path2 = f'maps/{c}-{now}.png'
+            image2.save(path2)
             await inter.edit_original_message(file=disnake.File(path2))
 
         async def main():
@@ -401,21 +404,27 @@ class Command(commands.Cog):
 
             bpp = 2**(12-int(zoom))
 
-            minX = min(coord[0] for coord in coords)
-            minZ = min(coord[1] for coord in coords)
-            maxX = max(coord[0] for coord in coords)
-            maxZ = max(coord[1] for coord in coords)
+            marginw = 96
+            marginh = 96
+
+            minX = min(coord[0] for coord in coords)-marginw
+            minZ = min(coord[1] for coord in coords)-marginh
+            maxX = max(coord[0] for coord in coords)+marginw
+            maxZ = max(coord[1] for coord in coords)+marginh
 
 
             tminX = math.floor(minX*16/bpp)
             tminZ = math.floor(minZ*16/bpp)
             tmaxX = math.floor(maxX*16/bpp)
             tmaxZ = math.floor(maxZ*16/bpp)
+
+            total_width = int((maxX-minX)*16*512/bpp)
+            total_height = int((maxZ-minZ)*16*512/bpp)
             
             tiles = [(x, z) for x in range(tminX, tmaxX+1) for z in range(tminZ, tmaxZ+1)]
 
-            image = await create_background(minX, minZ, maxX, maxZ, link, world, now, tminX, tminZ,  tmaxX, tmaxZ, bpp, tiles, scale)
-            await draw_towns(image, coords, minX, minZ, now, nationName, c, scale)
+            background = await create_background(minX, minZ, maxX, maxZ, link, world, now, tminX, tminZ,  tmaxX, tmaxZ, bpp, tiles, scale, total_width, total_height)
+            await draw_towns(background, coords, minX, minZ, now, nationName, c, scale, total_width, total_height)
             await download_tiles(tiles, link, world, now)
 
             etime = time.time()
@@ -425,20 +434,39 @@ class Command(commands.Cog):
 
         await main()
 
+    @commands.slash_command(description="map of a nation's dynamic nation range")
+    async def map_range(
+        self,
+        inter: disnake.ApplicationCommandInteraction,
+        nation: str = commands.Param(description = ''),
+        zoom: int = commands.Param(description = ''),
+        line_thickness: int = commands.Param( description = '')):
+
+        if int(zoom) > 1:
+            await inter.send('zoom must be 0 or 1')
+            return
+
+        await inter.response.defer()
+        
+        im = await MainRange.main(nation, zoom, line_thickness)
+        path = f'maps/{time.time()}.png'
+        im.save(path)
+
+        try:
+            await inter.followup.send(file=disnake.File(path))
+        except disnake.HTTPException as e:
+            if e.code == 40005:
+                if zoom == 1:
+                    await inter.send("The zoom is too high, try using 0 zoom")
+                if zoom == 0:
+                    await inter.send("The nation range map is too large, use (the command line version)[https://github.com/turtleexploding/command-line-nation-range] to create larger maps")
+            else:
+                print(f"An error occurred: {e}")
+                await inter.send("an error has occured")
+
 @bot.event
 async def on_ready():
     print('Ready')
-    daily_task.start()
-
-@tasks.loop(seconds=60) 
-async def daily_task():
-    current_time = time.strftime("%H:%M")
-    if current_time == "12:00":
-        image_path = multi.create_map()
-        with open(image_path, 'rb') as f:
-            picture = disnake.File(f)
-            channel = bot.get_channel(CHANNEL_ID)
-            await channel.send(file=picture)
 
 bot.add_cog(Command(bot))
 bot.run(TOKEN)
